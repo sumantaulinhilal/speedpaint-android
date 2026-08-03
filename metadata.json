@@ -1,0 +1,6 @@
+{
+  "name": "SpeedPaint",
+  "description": "Realistic whiteboard drawing & speedpaint animation studio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
