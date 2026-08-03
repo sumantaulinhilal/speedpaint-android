@@ -4,11 +4,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import com.example.animation.VirtualHandEngine.drawVirtualHand
 import com.example.model.BackgroundStyle
 import com.example.model.HandStyle
@@ -17,7 +19,52 @@ import com.example.model.SketchType
 import com.example.model.VectorPath
 import kotlin.math.hypot
 
+data class CanvasFrameTransform(
+    val scale: Float,
+    val translateX: Float,
+    val translateY: Float
+)
+
 object SpeedPaintRenderer {
+
+    fun calculateTransform(paths: List<VectorPath>, canvasWidth: Float, canvasHeight: Float): CanvasFrameTransform {
+        if (paths.isEmpty() || canvasWidth <= 0f || canvasHeight <= 0f) {
+            return CanvasFrameTransform(1f, 0f, 0f)
+        }
+
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+
+        for (path in paths) {
+            for (p in path.points) {
+                if (p.x < minX) minX = p.x
+                if (p.y < minY) minY = p.y
+                if (p.x > maxX) maxX = p.x
+                if (p.y > maxY) maxY = p.y
+            }
+        }
+
+        val artW = (maxX - minX).coerceAtLeast(10f)
+        val artH = (maxY - minY).coerceAtLeast(10f)
+
+        val targetW = canvasWidth * 0.82f
+        val targetH = canvasHeight * 0.82f
+
+        val scale = minOf(targetW / artW, targetH / artH).coerceIn(0.05f, 15.0f)
+
+        val centerXArt = minX + (artW / 2f)
+        val centerYArt = minY + (artH / 2f)
+
+        val centerXCanvas = canvasWidth / 2f
+        val centerYCanvas = canvasHeight / 2f
+
+        val translateX = centerXCanvas - (centerXArt * scale)
+        val translateY = centerYCanvas - (centerYArt * scale)
+
+        return CanvasFrameTransform(scale, translateX, translateY)
+    }
 
     /**
      * Renders full SpeedPaint canvas frame with background, animated vector paths,
@@ -30,18 +77,23 @@ object SpeedPaintRenderer {
         handStyle: HandStyle,
         backgroundStyle: BackgroundStyle,
         sketchType: SketchType,
-        showGridLines: Boolean = true
+        showGridLines: Boolean = true,
+        handMarkerBitmap: ImageBitmap? = null,
+        handPencilBitmap: ImageBitmap? = null
     ) {
-        // Step 1: Render Canvas Background
         val canvasWidth = size.width
         val canvasHeight = size.height
 
+        // Step 1: Background rendering
         drawRect(color = backgroundStyle.color)
 
-        // Draw subtle whiteboard / blackboard textures or grid lines
         if (showGridLines && backgroundStyle != BackgroundStyle.TRANSPARENT) {
-            val gridSpacing = 40f
-            val gridColor = if (backgroundStyle.isDark) Color(0x1AFFFFFF) else Color(0x1A000000)
+            val gridSpacing = 42f
+            val gridColor = when (backgroundStyle) {
+                BackgroundStyle.BLACK, BackgroundStyle.CHALKBOARD, BackgroundStyle.BLUEPRINT -> Color(0x1AFFFFFF)
+                BackgroundStyle.PARCHMENT -> Color(0x188C7A5B)
+                else -> Color(0x18000000)
+            }
 
             var x = gridSpacing
             while (x < canvasWidth) {
@@ -57,45 +109,67 @@ object SpeedPaintRenderer {
 
         if (paths.isEmpty()) return
 
-        // Calculate total distance of all paths combined
-        val pathLengths = paths.map { calculateTotalPathLength(it) }
-        val grandTotalLength = pathLengths.sum().coerceAtLeast(0.001f)
+        // Step 2: Perfect Centering Transformation
+        val transform = calculateTransform(paths, canvasWidth, canvasHeight)
 
+        val centeredPaths = paths.map { path ->
+            path.copy(
+                points = path.points.map { p ->
+                    Point2D(
+                        x = p.x * transform.scale + transform.translateX,
+                        y = p.y * transform.scale + transform.translateY
+                    )
+                },
+                strokeWidth = (path.strokeWidth * transform.scale).coerceIn(2.5f, 12f)
+            )
+        }
+
+        val pathLengths = centeredPaths.map { calculateTotalPathLength(it) }
+        val grandTotalLength = pathLengths.sum().coerceAtLeast(0.001f)
         val currentDrawnDistance = progress * grandTotalLength
 
-        // Step 2: Render Outline Paths up to currentDrawnDistance
+        // Step 3: Draw Outline Paths
         var accumulatedLength = 0f
 
-        for (i in paths.indices) {
-            val vectorPath = paths[i]
+        for (i in centeredPaths.indices) {
+            val vectorPath = centeredPaths[i]
             val pathLen = pathLengths[i]
 
-            // Determine sketch color based on SketchType
+            // Determine stroke color (ensure solid black is preserved on light backgrounds)
             val strokeColor = when (sketchType) {
-                SketchType.COLOR -> if (backgroundStyle.isDark && vectorPath.color == Color.Black) Color.White else vectorPath.color
-                SketchType.BLACK_WHITE -> if (backgroundStyle.isDark) Color.White else Color.Black
-                SketchType.GRAYSCALE -> if (backgroundStyle.isDark) Color(0xFFCCCCCC) else Color(0xFF444444)
+                SketchType.COLOR -> {
+                    if (backgroundStyle.isDark && (vectorPath.color == Color.Black || vectorPath.color == Color(0xFF0F172A))) {
+                        Color.White
+                    } else if (!backgroundStyle.isDark && (vectorPath.color == Color.Black || vectorPath.color == Color.White)) {
+                        Color(0xFF0F172A)
+                    } else {
+                        vectorPath.color
+                    }
+                }
+                SketchType.BLACK_WHITE -> {
+                    if (backgroundStyle.isDark) Color.White else Color(0xFF0F172A)
+                }
+                SketchType.GRAYSCALE -> {
+                    if (backgroundStyle.isDark) Color(0xFFE2E8F0) else Color(0xFF334155)
+                }
             }
 
             if (accumulatedLength + pathLen <= currentDrawnDistance) {
-                // Fully drawn path
                 drawFullVectorPath(vectorPath, strokeColor)
             } else if (accumulatedLength < currentDrawnDistance) {
-                // Partially drawn path
                 val localDrawn = currentDrawnDistance - accumulatedLength
                 drawPartialVectorPath(vectorPath, localDrawn, pathLen, strokeColor)
                 break
             } else {
-                // Not drawn yet
                 break
             }
 
             accumulatedLength += pathLen
         }
 
-        // Step 3: Progressive Color Fill Phase
+        // Step 4: Color Fill Phase
         if (fillProgress > 0f) {
-            for (vectorPath in paths) {
+            for (vectorPath in centeredPaths) {
                 if (vectorPath.points.size > 3 && vectorPath.color != Color.Black && vectorPath.color != Color.White) {
                     val fillAlpha = (fillProgress * 0.85f).coerceIn(0f, 0.85f)
                     val fillColor = vectorPath.color.copy(alpha = fillAlpha)
@@ -113,15 +187,17 @@ object SpeedPaintRenderer {
             }
         }
 
-        // Step 4: Virtual Hand Overlay tracking active drawing tip
+        // Step 5: Virtual Hand Overlay
         if (progress > 0f && progress < 1f && handStyle != HandStyle.NO_HAND) {
-            val handState = VirtualHandEngine.calculateHandState(paths, progress)
+            val handState = VirtualHandEngine.calculateHandState(centeredPaths, progress)
             if (handState.isContactingCanvas) {
                 drawVirtualHand(
                     handStyle = handStyle,
                     tipX = handState.tipPosition.x,
                     tipY = handState.tipPosition.y,
-                    angleDegrees = handState.angleDegrees
+                    angleDegrees = handState.angleDegrees,
+                    handMarkerBitmap = handMarkerBitmap,
+                    handPencilBitmap = handPencilBitmap
                 )
             }
         }
@@ -138,7 +214,11 @@ object SpeedPaintRenderer {
         drawPath(
             composePath,
             color = strokeColor,
-            style = Stroke(width = path.strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            style = Stroke(
+                width = path.strokeWidth,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
         )
     }
 
@@ -149,8 +229,6 @@ object SpeedPaintRenderer {
         strokeColor: Color
     ) {
         if (path.points.size < 2 || totalPathLen <= 0f) return
-
-        val fraction = (localDrawnLen / totalPathLen).coerceIn(0f, 1f)
 
         val partialPath = Path()
         var currentLen = 0f
@@ -178,7 +256,11 @@ object SpeedPaintRenderer {
         drawPath(
             partialPath,
             color = strokeColor,
-            style = Stroke(width = path.strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            style = Stroke(
+                width = path.strokeWidth,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
         )
     }
 

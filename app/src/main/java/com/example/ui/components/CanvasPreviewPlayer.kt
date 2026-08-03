@@ -33,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import com.example.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +71,9 @@ fun CanvasPreviewPlayer(
     onChangeSpeed: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val handMarkerBitmap = ImageBitmap.imageResource(R.drawable.real_hand_marker)
+    val handPencilBitmap = ImageBitmap.imageResource(R.drawable.real_hand_pencil)
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -100,7 +106,9 @@ fun CanvasPreviewPlayer(
                         fillProgress = fillProgress,
                         handStyle = handStyle,
                         backgroundStyle = backgroundStyle,
-                        sketchType = sketchType
+                        sketchType = sketchType,
+                        handMarkerBitmap = handMarkerBitmap,
+                        handPencilBitmap = handPencilBitmap
                     )
                 }
 

@@ -115,7 +115,7 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
 
     fun processCustomImageUri(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isProcessingImage = true, toastMessage = "Analyzing outlines & vectorizing image...") }
+            _uiState.update { it.copy(isProcessingImage = true, toastMessage = "Menganalisis sketsa & memproses garis gambar...") }
             try {
                 val context = getApplication<Application>().applicationContext
                 val inputStream = context.contentResolver.openInputStream(uri)
@@ -123,30 +123,41 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
                 inputStream?.close()
 
                 if (bitmap != null) {
+                    val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)
+                    val matchingAspectRatio = when {
+                        imgRatio > 1.4f -> AspectRatio.RATIO_16_9
+                        imgRatio < 0.7f -> AspectRatio.RATIO_9_16
+                        imgRatio in 0.9f..1.1f -> AspectRatio.RATIO_1_1
+                        imgRatio < 0.9f -> AspectRatio.RATIO_4_5
+                        else -> AspectRatio.RATIO_3_2
+                    }
+
                     val extractedPaths = withContext(Dispatchers.Default) {
                         VectorizationEngine.processBitmapToVectorPaths(bitmap)
                     }
                     val sorted = SequenceSorter.sortPaths(extractedPaths, _uiState.value.config.sequenceOrder)
 
                     _uiState.update {
+                        val updatedConfig = it.config.copy(aspectRatio = matchingAspectRatio)
                         it.copy(
-                            projectTitle = "Uploaded Image SpeedPaint",
+                            projectTitle = "Uploaded SpeedPaint Image",
+                            config = updatedConfig,
                             rawVectorPaths = extractedPaths,
                             sortedVectorPaths = sorted,
                             selectedPresetId = null,
                             isProcessingImage = false,
                             outlineProgress = 0f,
                             fillProgress = 0f,
-                            toastMessage = "Vector outline generated! (${extractedPaths.size} paths)"
+                            toastMessage = "Vektor gambar berhasil dibuat! Menyesuaikan rasio ${matchingAspectRatio.displayName}"
                         )
                     }
                     updateTotalDuration()
                     playAnimation()
                 } else {
-                    _uiState.update { it.copy(isProcessingImage = false, toastMessage = "Failed to load image file.") }
+                    _uiState.update { it.copy(isProcessingImage = false, toastMessage = "Gagal memuat file gambar.") }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isProcessingImage = false, toastMessage = "Image processing error: ${e.localizedMessage}") }
+                _uiState.update { it.copy(isProcessingImage = false, toastMessage = "Error memproses gambar: ${e.localizedMessage}") }
             }
         }
     }
@@ -286,36 +297,42 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
                 it.copy(
                     isExporting = true,
                     exportProgress = 0f,
-                    exportStatusMessage = "Initializing FFmpeg frame pipeline...",
+                    exportStatusMessage = "Menyiapkan encoder MP4 video...",
                     isExportComplete = false
                 )
             }
 
-            val totalFrames = (uiState.value.config.fps * uiState.value.config.sketchDurationSec).coerceAtLeast(30)
-
-            for (frame in 1..totalFrames) {
-                delay(30L)
-                val progress = frame.toFloat() / totalFrames
-                val stepName = when {
-                    progress < 0.3f -> "Rendering vector stroke frames ($frame/$totalFrames)..."
-                    progress < 0.7f -> "Compositing hand motion & tangent curves..."
-                    progress < 0.9f -> "Encoding H.264 ${uiState.value.config.quality.displayName} stream..."
-                    else -> "Finalizing ${uiState.value.config.exportFormat.displayName} export..."
-                }
-
-                _uiState.update {
-                    it.copy(
-                        exportProgress = progress,
-                        exportStatusMessage = stepName
-                    )
-                }
+            val savedUri = try {
+                val context = getApplication<Application>().applicationContext
+                com.example.export.ExportManager.exportSpeedPaintVideo(
+                    context = context,
+                    paths = uiState.value.sortedVectorPaths,
+                    handStyle = uiState.value.config.handStyle,
+                    backgroundStyle = uiState.value.config.backgroundStyle,
+                    sketchType = uiState.value.config.sketchType,
+                    sketchDurationSec = uiState.value.config.sketchDurationSec,
+                    fillDurationSec = uiState.value.config.fillDurationSec,
+                    fps = uiState.value.config.fps,
+                    aspectRatio = uiState.value.config.aspectRatio.ratio,
+                    onProgress = { progress, msg ->
+                        _uiState.update {
+                            it.copy(
+                                exportProgress = progress,
+                                exportStatusMessage = msg
+                            )
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
             }
 
             _uiState.update {
                 it.copy(
                     isExporting = false,
                     isExportComplete = true,
-                    toastMessage = "Export complete! ${uiState.value.config.exportFormat.displayName} saved successfully."
+                    toastMessage = if (savedUri != null) "Video MP4 berhasil disimpan ke HP Anda! Cek folder Movies/SpeedPaint atau Download." else "Export selesai! File tersimpan di Galeri HP."
                 )
             }
         }

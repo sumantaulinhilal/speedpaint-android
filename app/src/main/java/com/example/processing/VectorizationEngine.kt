@@ -24,7 +24,7 @@ object VectorizationEngine {
         minPathLength: Float = 15f
     ): List<VectorPath> {
         // Step 1: Scale down bitmap for fast local image processing
-        val maxDim = 400
+        val maxDim = 500
         val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1.0f)
         val scaledW = (bitmap.width * scale).toInt().coerceAtLeast(10)
         val scaledH = (bitmap.height * scale).toInt().coerceAtLeast(10)
@@ -79,7 +79,7 @@ object VectorizationEngine {
                 }
 
                 val mag = hypot(gx.toDouble(), gy.toDouble()).toFloat()
-                if (mag > threshold) {
+                if (mag > 25) { // Sensitive threshold to capture all sketch details
                     edges[y * scaledW + x] = true
                     val originalIntColor = colors[y][x]
                     edgeColors[y][x] = Color(originalIntColor)
@@ -95,8 +95,26 @@ object VectorizationEngine {
         val dxDirs = intArrayOf(1, 1, 0, -1, -1, -1, 0, 1)
         val dyDirs = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
 
-        val scaleX = targetWidth / scaledW
-        val scaleY = targetHeight / scaledH
+        val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)
+        val drawW: Float
+        val drawH: Float
+        val offsetX: Float
+        val offsetY: Float
+
+        if (imgRatio >= 1f) {
+            drawW = targetWidth
+            drawH = targetWidth / imgRatio
+            offsetX = 0f
+            offsetY = (targetHeight - drawH) / 2f
+        } else {
+            drawH = targetHeight
+            drawW = targetHeight * imgRatio
+            offsetX = (targetWidth - drawW) / 2f
+            offsetY = 0f
+        }
+
+        val scaleX = drawW / scaledW
+        val scaleY = drawH / scaledH
 
         for (y in 1 until scaledH - 1) {
             for (x in 1 until scaledW - 1) {
@@ -114,7 +132,12 @@ object VectorizationEngine {
                         if (!edges[cIdx] || visited[cIdx]) break
 
                         visited[cIdx] = true
-                        currentPathPoints.add(Point2D(currX * scaleX, currY * scaleY))
+                        currentPathPoints.add(
+                            Point2D(
+                                x = offsetX + (currX * scaleX),
+                                y = offsetY + (currY * scaleY)
+                            )
+                        )
 
                         // Find next unvisited neighbor
                         var foundNeighbor = false
@@ -134,7 +157,7 @@ object VectorizationEngine {
                         if (!foundNeighbor) break
                     }
 
-                    if (currentPathPoints.size >= 3) {
+                    if (currentPathPoints.size >= 4) {
                         rawPaths.add(currentPathPoints)
                         rawPathColors.add(sampledColor)
                     }
@@ -142,25 +165,46 @@ object VectorizationEngine {
             }
         }
 
-        // Step 5: Path Simplification (RDP) & Text Detection Classification
-        val finalPaths = mutableListOf<VectorPath>()
+        // Step 5: Stitch close path endpoints into continuous long sketch marker strokes
+        val stitchedPaths = mutableListOf<MutableList<Point2D>>()
+        val stitchedColors = mutableListOf<Color>()
 
         for (i in rawPaths.indices) {
             val pts = rawPaths[i]
-            val simplified = ramerDouglasPeucker(pts, epsilon = 2.5f)
+            val col = rawPathColors[i]
+
+            if (stitchedPaths.isNotEmpty()) {
+                val lastPath = stitchedPaths.last()
+                val lastPt = lastPath.last()
+                val firstPt = pts.first()
+                val dist = hypot((firstPt.x - lastPt.x).toDouble(), (firstPt.y - lastPt.y).toDouble()).toFloat()
+
+                if (dist < 35f && col == stitchedColors.last()) {
+                    lastPath.addAll(pts)
+                    continue
+                }
+            }
+            stitchedPaths.add(pts.toMutableList())
+            stitchedColors.add(col)
+        }
+
+        // Step 6: Path Simplification & Marker Stroke Generation
+        val finalPaths = mutableListOf<VectorPath>()
+
+        for (i in stitchedPaths.indices) {
+            val pts = stitchedPaths[i]
+            val simplified = ramerDouglasPeucker(pts, epsilon = 1.2f)
 
             val totalLen = calculatePathLength(simplified)
-            if (totalLen >= minPathLength) {
+            if (totalLen >= 12f) {
                 val bbox = PathBoundingBox.calculate(simplified)
-
-                // Detect text characteristic (compact height, high horizontal aspect ratio)
                 val isText = bbox.height in 8f..40f && bbox.width > bbox.height * 1.5f
 
                 finalPaths.add(
                     VectorPath(
                         points = simplified,
-                        color = rawPathColors[i],
-                        strokeWidth = if (isText) 2.5f else 3.5f,
+                        color = stitchedColors[i],
+                        strokeWidth = if (isText) 5.0f else 6.5f,
                         isText = isText,
                         totalLength = totalLen,
                         boundingBox = bbox
