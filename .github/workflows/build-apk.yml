@@ -13,17 +13,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up JDK 21
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
-        java-version: '21'
+        java-version: '17'
         distribution: 'temurin'
 
-    - name: Pre-accept Android SDK Licenses
-      run: |
-        mkdir -p "$ANDROID_HOME/licenses"
-        printf "8933low61014b3c69b19015d2b0e5b0010b27247d228b93\nd56f5187479451eabf01fb78af6d6255323817d0\n24333f8a63718c15525c4a357f5671f68673f543\n84831b9409646a518e48657352ee7a016ec22057\n6010077e68b4449935794967333011f7a6c3439c\n08972f77937e4b213d1bd58f532bd27d11d14782" > "$ANDROID_HOME/licenses/android-sdk-license"
-        printf "84831b9409646a518e48657352ee7a016ec22057" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
