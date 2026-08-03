@@ -19,8 +19,12 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Prepare environment and permissions
       run: |
+        sed -i 's/\r$//' gradlew
         chmod +x gradlew
         mkdir -p ~/.android
         if [ -f "debug.keystore.base64" ]; then
@@ -42,5 +46,6 @@ jobs:
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/*.apk
+        if-no-files-found: error
 
 
