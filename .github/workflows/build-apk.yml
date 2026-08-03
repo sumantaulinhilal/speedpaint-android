@@ -22,24 +22,28 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Prepare environment and permissions
+    - name: Accept Android SDK Licenses
       run: |
-        sed -i 's/\r$//' gradlew
-        chmod +x gradlew
+        mkdir -p "$ANDROID_HOME/licenses" || true
+        echo "24333f8a637b3744d16de1220079dddb497d909c" > "$ANDROID_HOME/licenses/android-sdk-license"
+        echo "89330d22263015100398d459cb0746b92a6631e3" >> "$ANDROID_HOME/licenses/android-sdk-license"
+        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Prepare environment and files
+      run: |
         mkdir -p ~/.android
         if [ -f "debug.keystore.base64" ]; then
           base64 -d debug.keystore.base64 > ~/.android/debug.keystore
           base64 -d debug.keystore.base64 > debug.keystore
         fi
-        if [ ! -f .env ] && [ -f .env.example ]; then
-          cp .env.example .env
-        elif [ ! -f .env ]; then
-          touch .env
-        fi
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        touch .env
+        touch .env.example
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon --stacktrace
+      run: gradle assembleDebug --no-daemon --stacktrace
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
@@ -47,5 +51,6 @@ jobs:
         name: app-debug
         path: app/build/outputs/apk/debug/*.apk
         if-no-files-found: error
+
 
 
