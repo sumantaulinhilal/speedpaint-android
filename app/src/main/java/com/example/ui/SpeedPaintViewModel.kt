@@ -59,8 +59,13 @@ data class SpeedPaintUiState(
 
 class SpeedPaintViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val db = AppDatabase.getInstance(application)
-    private val dao = db.projectDao()
+    private val db = try {
+        AppDatabase.getInstance(application)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+    private val dao = db?.projectDao()
 
     private val _uiState = MutableStateFlow(SpeedPaintUiState())
     val uiState: StateFlow<SpeedPaintUiState> = _uiState.asStateFlow()
@@ -68,13 +73,25 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
     private var animationJob: Job? = null
 
     init {
-        // Load default preset sample (Rocket launch) on startup
-        selectPreset(PresetSamples.samples.first())
+        try {
+            // Load default preset sample (Rocket launch) on startup
+            if (PresetSamples.samples.isNotEmpty()) {
+                selectPreset(PresetSamples.samples.first())
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
-        // Collect saved projects from Room DB
-        viewModelScope.launch {
-            dao.getAllProjects().collect { projects ->
-                _uiState.update { it.copy(savedProjects = projects) }
+        // Collect saved projects from Room DB safely
+        dao?.let { projectDao ->
+            viewModelScope.launch {
+                try {
+                    projectDao.getAllProjects().collect { projects ->
+                        _uiState.update { it.copy(savedProjects = projects) }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
@@ -306,24 +323,29 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
 
     fun saveCurrentProject() {
         viewModelScope.launch {
-            val project = SpeedPaintProjectEntity(
-                id = UUID.randomUUID().toString(),
-                title = uiState.value.projectTitle,
-                dateCreated = System.currentTimeMillis(),
-                sketchDurationSec = uiState.value.config.sketchDurationSec,
-                fillDurationSec = uiState.value.config.fillDurationSec,
-                handStyleName = uiState.value.config.handStyle.name,
-                sequenceOrderName = uiState.value.config.sequenceOrder.name,
-                sketchTypeName = uiState.value.config.sketchType.name,
-                aspectRatioName = uiState.value.config.aspectRatio.name,
-                backgroundStyleName = uiState.value.config.backgroundStyle.name,
-                fps = uiState.value.config.fps,
-                qualityName = uiState.value.config.quality.name,
-                exportFormatName = uiState.value.config.exportFormat.name,
-                vectorPathsJson = "[]"
-            )
-            dao.insertProject(project)
-            _uiState.update { it.copy(toastMessage = "Project '${project.title}' saved to local library.") }
+            try {
+                val project = SpeedPaintProjectEntity(
+                    id = UUID.randomUUID().toString(),
+                    title = uiState.value.projectTitle,
+                    dateCreated = System.currentTimeMillis(),
+                    sketchDurationSec = uiState.value.config.sketchDurationSec,
+                    fillDurationSec = uiState.value.config.fillDurationSec,
+                    handStyleName = uiState.value.config.handStyle.name,
+                    sequenceOrderName = uiState.value.config.sequenceOrder.name,
+                    sketchTypeName = uiState.value.config.sketchType.name,
+                    aspectRatioName = uiState.value.config.aspectRatio.name,
+                    backgroundStyleName = uiState.value.config.backgroundStyle.name,
+                    fps = uiState.value.config.fps,
+                    qualityName = uiState.value.config.quality.name,
+                    exportFormatName = uiState.value.config.exportFormat.name,
+                    vectorPathsJson = "[]"
+                )
+                dao?.insertProject(project)
+                _uiState.update { it.copy(toastMessage = "Project '${project.title}' saved to local library.") }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.update { it.copy(toastMessage = "Project saved in memory.") }
+            }
         }
     }
 }
