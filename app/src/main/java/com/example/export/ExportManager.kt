@@ -83,13 +83,14 @@ object ExportManager {
             val frameBitmap = Bitmap.createBitmap(videoWidth, videoHeight, Bitmap.Config.ARGB_8888)
             val androidCanvas = Canvas(frameBitmap)
 
+            val decodeOptions = BitmapFactory.Options().apply { inScaled = false }
             val handMarkerBitmap = try {
-                BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_marker)?.asImageBitmap()
-            } catch (e: Exception) { null }
+                BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_marker, decodeOptions)?.asImageBitmap()
+            } catch (e: Throwable) { null }
 
             val handPencilBitmap = try {
-                BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_pencil)?.asImageBitmap()
-            } catch (e: Exception) { null }
+                BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_pencil, decodeOptions)?.asImageBitmap()
+            } catch (e: Throwable) { null }
 
             val bufferInfo = MediaCodec.BufferInfo()
 

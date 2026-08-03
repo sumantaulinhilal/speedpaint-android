@@ -29,13 +29,16 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.imageResource
-import com.example.R
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,8 +74,23 @@ fun CanvasPreviewPlayer(
     onChangeSpeed: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val handMarkerBitmap = ImageBitmap.imageResource(R.drawable.real_hand_marker)
-    val handPencilBitmap = ImageBitmap.imageResource(R.drawable.real_hand_pencil)
+    val context = LocalContext.current
+    val handMarkerBitmap = remember(context) {
+        try {
+            val opts = BitmapFactory.Options().apply { inScaled = false }
+            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_marker, opts)?.asImageBitmap()
+        } catch (e: Throwable) {
+            null
+        }
+    }
+    val handPencilBitmap = remember(context) {
+        try {
+            val opts = BitmapFactory.Options().apply { inScaled = false }
+            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_pencil, opts)?.asImageBitmap()
+        } catch (e: Throwable) {
+            null
+        }
+    }
 
     Card(
         modifier = modifier
