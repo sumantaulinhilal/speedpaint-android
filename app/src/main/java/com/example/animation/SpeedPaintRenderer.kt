@@ -77,14 +77,14 @@ object SpeedPaintRenderer {
         handStyle: HandStyle,
         backgroundStyle: BackgroundStyle,
         sketchType: SketchType,
-        showGridLines: Boolean = true,
+        showGridLines: Boolean = false,
         handMarkerBitmap: ImageBitmap? = null,
         handPencilBitmap: ImageBitmap? = null
     ) {
         val canvasWidth = size.width
         val canvasHeight = size.height
 
-        // Step 1: Background rendering
+        // Step 1: Clean Blank Canvas Background (White / Custom)
         drawRect(color = backgroundStyle.color)
 
         if (showGridLines && backgroundStyle != BackgroundStyle.TRANSPARENT) {
@@ -120,7 +120,7 @@ object SpeedPaintRenderer {
                         y = p.y * transform.scale + transform.translateY
                     )
                 },
-                strokeWidth = (path.strokeWidth * transform.scale).coerceIn(2.5f, 12f)
+                strokeWidth = (path.strokeWidth * transform.scale).coerceIn(1.8f, 4.5f)
             )
         }
 

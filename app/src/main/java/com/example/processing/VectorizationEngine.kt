@@ -9,12 +9,12 @@ import com.example.model.VectorPath
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
-import kotlin.math.max
 
 object VectorizationEngine {
 
     /**
-     * Converts a raw input Bitmap into vector paths for speedpaint whiteboard drawing.
+     * Converts a raw input Bitmap into clean 1-line centerline vector paths for speedpaint drawing animation.
+     * Uses Zhang-Suen Medial Axis Thinning to convert line art & sketches into crisp, non-overlapping strokes.
      */
     fun processBitmapToVectorPaths(
         bitmap: Bitmap,
@@ -23,24 +23,19 @@ object VectorizationEngine {
         threshold: Int = 40,
         minPathLength: Float = 15f
     ): List<VectorPath> {
-        // Step 1: Scale down bitmap for fast local image processing
-        val maxDim = 500
+        val maxDim = 450
         val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1.0f)
         val scaledW = (bitmap.width * scale).toInt().coerceAtLeast(10)
         val scaledH = (bitmap.height * scale).toInt().coerceAtLeast(10)
 
         val scaledBitmap = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
-
-        // Step 2: Convert to Grayscale & Luminance matrix with Alpha Blending
         val pixels = IntArray(scaledW * scaledH)
         scaledBitmap.getPixels(pixels, 0, scaledW, 0, 0, scaledW, scaledH)
 
-        val gray = FloatArray(scaledW * scaledH)
-        val colors = Array(scaledH) { IntArray(scaledW) }
+        val binaryGrid = Array(scaledH) { IntArray(scaledW) }
+        val colorGrid = Array(scaledH) { arrayOfNulls<Color>(scaledW) }
 
-        var borderLumaSum = 0f
-        var borderPixelCount = 0
-
+        // Step 1: Detect dark drawing strokes on light background
         for (y in 0 until scaledH) {
             for (x in 0 until scaledW) {
                 val pixel = pixels[y * scaledW + x]
@@ -49,7 +44,7 @@ object VectorizationEngine {
                 var g = (pixel shr 8) and 0xFF
                 var b = pixel and 0xFF
 
-                // Blend transparent/semi-transparent background pixels onto solid white canvas
+                // Handle transparency against solid white paper canvas
                 if (a < 255) {
                     val alphaFactor = a / 255f
                     r = (r * alphaFactor + 255 * (1f - alphaFactor)).toInt().coerceIn(0, 255)
@@ -58,103 +53,25 @@ object VectorizationEngine {
                 }
 
                 val luma = 0.299f * r + 0.587f * g + 0.114f * b
-                gray[y * scaledW + x] = luma
-                colors[y][x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                val isSaturated = (maxOf(r, g, b) - minOf(r, g, b)) > 45
 
-                if (x == 0 || x == scaledW - 1 || y == 0 || y == scaledH - 1) {
-                    borderLumaSum += luma
-                    borderPixelCount++
-                }
-            }
-        }
-
-        // Step 3: Sobel Filter + Non-Maximum Suppression (NMS) for 1-Pixel Thin Crisp Edges
-        val mag = FloatArray(scaledW * scaledH)
-        val dirAngle = FloatArray(scaledW * scaledH)
-
-        val gxKernel = arrayOf(
-            intArrayOf(-1, 0, 1),
-            intArrayOf(-2, 0, 2),
-            intArrayOf(-1, 0, 1)
-        )
-        val gyKernel = arrayOf(
-            intArrayOf(-1, -2, -1),
-            intArrayOf(0, 0, 0),
-            intArrayOf(1, 2, 1)
-        )
-
-        for (y in 1 until scaledH - 1) {
-            for (x in 1 until scaledW - 1) {
-                var gx = 0f
-                var gy = 0f
-
-                for (ky in -1..1) {
-                    for (kx in -1..1) {
-                        val pixelLuma = gray[(y + ky) * scaledW + (x + kx)]
-                        gx += pixelLuma * gxKernel[ky + 1][kx + 1]
-                        gy += pixelLuma * gyKernel[ky + 1][kx + 1]
-                    }
-                }
-
-                val idx = y * scaledW + x
-                mag[idx] = hypot(gx.toDouble(), gy.toDouble()).toFloat()
-                dirAngle[idx] = atan2(gy.toDouble(), gx.toDouble()).toFloat()
-            }
-        }
-
-        // Apply Non-Maximum Suppression (NMS) to thin thick edge bands into clean 1-pixel skeletons
-        val edges = BooleanArray(scaledW * scaledH)
-        val edgeColors = Array(scaledH) { arrayOfNulls<Color>(scaledW) }
-
-        for (y in 1 until scaledH - 1) {
-            for (x in 1 until scaledW - 1) {
-                val idx = y * scaledW + x
-                val m = mag[idx]
-                if (m < 28f) continue // Edge threshold
-
-                val deg = (dirAngle[idx] * 180f / Math.PI.toFloat() + 180f) % 180f
-                var m1 = 0f
-                var m2 = 0f
-
-                if ((deg >= 0f && deg < 22.5f) || (deg >= 157.5f && deg <= 180f)) {
-                    m1 = mag[idx - 1]
-                    m2 = mag[idx + 1]
-                } else if (deg >= 22.5f && deg < 67.5f) {
-                    m1 = mag[(y - 1) * scaledW + (x + 1)]
-                    m2 = mag[(y + 1) * scaledW + (x - 1)]
-                } else if (deg >= 67.5f && deg < 112.5f) {
-                    m1 = mag[(y - 1) * scaledW + x]
-                    m2 = mag[(y + 1) * scaledW + x]
+                // Stroke pixel if dark enough or transparent cutout border
+                if (luma < 170f || (a in 10..240)) {
+                    binaryGrid[y][x] = 1
+                    colorGrid[y][x] = if (isSaturated) Color(r, g, b) else Color.Black
                 } else {
-                    m1 = mag[(y - 1) * scaledW + (x - 1)]
-                    m2 = mag[(y + 1) * scaledW + (x + 1)]
-                }
-
-                if (m >= m1 && m >= m2) {
-                    edges[idx] = true
-                    val originalIntColor = colors[y][x]
-                    val c = Color(originalIntColor)
-                    val r = c.red
-                    val g = c.green
-                    val b = c.blue
-                    val pLuma = 0.299f * r + 0.587f * g + 0.114f * b
-                    val isSaturated = (maxOf(r, g, b) - minOf(r, g, b)) > 0.18f
-
-                    edgeColors[y][x] = when {
-                        isSaturated -> c
-                        else -> Color(0xFF0F172A)
-                    }
+                    binaryGrid[y][x] = 0
                 }
             }
         }
 
-        // Step 4: Contour / Path Tracing using 8-neighbor connectivity
-        val visited = BooleanArray(scaledW * scaledH)
-        val rawPaths = mutableListOf<List<Point2D>>()
-        val rawPathColors = mutableListOf<Color>()
+        // Step 2: Zhang-Suen Skeletonization / Thinning
+        val skeleton = zhangSuenThinning(binaryGrid, scaledW, scaledH)
 
-        val dxDirs = intArrayOf(1, 1, 0, -1, -1, -1, 0, 1)
-        val dyDirs = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
+        // Step 3: Trace 1-pixel centerline skeleton into paths
+        val visited = Array(scaledH) { BooleanArray(scaledW) }
+        val rawPaths = mutableListOf<List<Point2D>>()
+        val pathColors = mutableListOf<Color>()
 
         val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)
         val drawW: Float
@@ -177,62 +94,60 @@ object VectorizationEngine {
         val scaleX = drawW / scaledW
         val scaleY = drawH / scaledH
 
+        val dxDirs = intArrayOf(1, 1, 0, -1, -1, -1, 0, 1)
+        val dyDirs = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
+
         for (y in 1 until scaledH - 1) {
             for (x in 1 until scaledW - 1) {
-                val idx = y * scaledW + x
-                if (edges[idx] && !visited[idx]) {
-                    // Trace connected component
-                    val currentPathPoints = mutableListOf<Point2D>()
+                if (skeleton[y][x] == 1 && !visited[y][x]) {
+                    val points = mutableListOf<Point2D>()
                     var currX = x
                     var currY = y
 
-                    val sampledColor = edgeColors[y][x] ?: Color.Black
+                    val strokeColor = colorGrid[y][x] ?: Color.Black
 
-                    while (currX in 0 until scaledW && currY in 0 until scaledH) {
-                        val cIdx = currY * scaledW + currX
-                        if (!edges[cIdx] || visited[cIdx]) break
+                    while (currX in 1 until scaledW - 1 && currY in 1 until scaledH - 1) {
+                        if (skeleton[currY][currX] != 1 || visited[currY][currX]) break
 
-                        visited[cIdx] = true
-                        currentPathPoints.add(
+                        visited[currY][currX] = true
+                        points.add(
                             Point2D(
                                 x = offsetX + (currX * scaleX),
                                 y = offsetY + (currY * scaleY)
                             )
                         )
 
-                        // Find next unvisited neighbor
-                        var foundNeighbor = false
+                        var found = false
                         for (d in 0 until 8) {
                             val nx = currX + dxDirs[d]
                             val ny = currY + dyDirs[d]
-                            if (nx in 0 until scaledW && ny in 0 until scaledH) {
-                                val nIdx = ny * scaledW + nx
-                                if (edges[nIdx] && !visited[nIdx]) {
+                            if (nx in 1 until scaledW - 1 && ny in 1 until scaledH - 1) {
+                                if (skeleton[ny][nx] == 1 && !visited[ny][nx]) {
                                     currX = nx
                                     currY = ny
-                                    foundNeighbor = true
+                                    found = true
                                     break
                                 }
                             }
                         }
-                        if (!foundNeighbor) break
+                        if (!found) break
                     }
 
-                    if (currentPathPoints.size >= 4) {
-                        rawPaths.add(currentPathPoints)
-                        rawPathColors.add(sampledColor)
+                    if (points.size >= 3) {
+                        rawPaths.add(points)
+                        pathColors.add(strokeColor)
                     }
                 }
             }
         }
 
-        // Step 5: Stitch close path endpoints into continuous long sketch marker strokes
+        // Step 4: Merge close endpoints into continuous smooth strokes
         val stitchedPaths = mutableListOf<MutableList<Point2D>>()
         val stitchedColors = mutableListOf<Color>()
 
         for (i in rawPaths.indices) {
             val pts = rawPaths[i]
-            val col = rawPathColors[i]
+            val col = pathColors[i]
 
             if (stitchedPaths.isNotEmpty()) {
                 val lastPath = stitchedPaths.last()
@@ -240,7 +155,7 @@ object VectorizationEngine {
                 val firstPt = pts.first()
                 val dist = hypot((firstPt.x - lastPt.x).toDouble(), (firstPt.y - lastPt.y).toDouble()).toFloat()
 
-                if (dist < 35f && col == stitchedColors.last()) {
+                if (dist < 20f && col == stitchedColors.last()) {
                     lastPath.addAll(pts)
                     continue
                 }
@@ -249,23 +164,23 @@ object VectorizationEngine {
             stitchedColors.add(col)
         }
 
-        // Step 6: Path Simplification & Marker Stroke Generation
+        // Step 5: Smooth and simplify centerline paths
         val finalPaths = mutableListOf<VectorPath>()
 
         for (i in stitchedPaths.indices) {
             val pts = stitchedPaths[i]
-            val simplified = ramerDouglasPeucker(pts, epsilon = 1.2f)
-
+            val simplified = ramerDouglasPeucker(pts, epsilon = 1.0f)
             val totalLen = calculatePathLength(simplified)
-            if (totalLen >= 12f) {
+
+            if (totalLen >= 10f) {
                 val bbox = PathBoundingBox.calculate(simplified)
-                val isText = bbox.height in 8f..40f && bbox.width > bbox.height * 1.5f
+                val isText = bbox.height in 8f..35f && bbox.width > bbox.height * 1.8f
 
                 finalPaths.add(
                     VectorPath(
                         points = simplified,
                         color = stitchedColors[i],
-                        strokeWidth = if (isText) 5.0f else 6.5f,
+                        strokeWidth = if (isText) 2.2f else 2.8f,
                         isText = isText,
                         totalLength = totalLen,
                         boundingBox = bbox
@@ -275,11 +190,91 @@ object VectorizationEngine {
         }
 
         return if (finalPaths.isEmpty()) {
-            // Fallback grid pattern if image had low edges
             PresetSamples.samples.first().sampleSvgPaths
         } else {
             finalPaths
         }
+    }
+
+    /**
+     * Zhang-Suen Thinning Algorithm for 8-connected binary image skeletons.
+     */
+    private fun zhangSuenThinning(grid: Array<IntArray>, width: Int, height: Int): Array<IntArray> {
+        val skel = Array(height) { grid[it].clone() }
+        var hasChanged: Boolean
+
+        val p2y = intArrayOf(-1, -1, 0, 1, 1, 1, 0, -1)
+        val p2x = intArrayOf(0, 1, 1, 1, 0, -1, -1, -1)
+
+        do {
+            hasChanged = false
+            val toDeleteStep1 = mutableListOf<Pair<Int, Int>>()
+
+            for (y in 1 until height - 1) {
+                for (x in 1 until width - 1) {
+                    if (skel[y][x] != 1) continue
+
+                    val p = IntArray(8)
+                    for (i in 0 until 8) {
+                        p[i] = skel[y + p2y[i]][x + p2x[i]]
+                    }
+
+                    val b = p.sum()
+                    if (b !in 2..6) continue
+
+                    var a = 0
+                    for (i in 0 until 8) {
+                        if (p[i] == 0 && p[(i + 1) % 8] == 1) a++
+                    }
+                    if (a != 1) continue
+
+                    if (p[0] * p[2] * p[4] != 0) continue
+                    if (p[2] * p[4] * p[6] != 0) continue
+
+                    toDeleteStep1.add(Pair(y, x))
+                }
+            }
+
+            for (pt in toDeleteStep1) {
+                skel[pt.first][pt.second] = 0
+                hasChanged = true
+            }
+
+            val toDeleteStep2 = mutableListOf<Pair<Int, Int>>()
+
+            for (y in 1 until height - 1) {
+                for (x in 1 until width - 1) {
+                    if (skel[y][x] != 1) continue
+
+                    val p = IntArray(8)
+                    for (i in 0 until 8) {
+                        p[i] = skel[y + p2y[i]][x + p2x[i]]
+                    }
+
+                    val b = p.sum()
+                    if (b !in 2..6) continue
+
+                    var a = 0
+                    for (i in 0 until 8) {
+                        if (p[i] == 0 && p[(i + 1) % 8] == 1) a++
+                    }
+                    if (a != 1) continue
+
+                    if (p[0] * p[2] * p[6] != 0) continue
+                    if (p[0] * p[4] * p[6] != 0) continue
+
+                    toDeleteStep2.add(Pair(y, x))
+                }
+            }
+
+            for (pt in toDeleteStep2) {
+                skel[pt.first][pt.second] = 0
+                hasChanged = true
+            }
+
+        } while (hasChanged)
+
+        return skel
     }
 
     private fun calculatePathLength(points: List<Point2D>): Float {
@@ -308,26 +303,27 @@ object VectorizationEngine {
         }
 
         return if (dmax > epsilon) {
-            val recursiveResult1 = ramerDouglasPeucker(points.subList(0, index + 1), epsilon)
-            val recursiveResult2 = ramerDouglasPeucker(points.subList(index, points.size), epsilon)
-
-            recursiveResult1.dropLast(1) + recursiveResult2
+            val recResults1 = ramerDouglasPeucker(points.subList(0, index + 1), epsilon)
+            val recResults2 = ramerDouglasPeucker(points.subList(index, end + 1), epsilon)
+            recResults1.dropLast(1) + recResults2
         } else {
-            listOf(points.first(), points.last())
+            listOf(points[0], points[end])
         }
     }
 
-    private fun perpendicularDistance(point: Point2D, lineStart: Point2D, lineEnd: Point2D): Float {
+    private fun perpendicularDistance(p: Point2D, lineStart: Point2D, lineEnd: Point2D): Float {
         val dx = lineEnd.x - lineStart.x
         val dy = lineEnd.y - lineStart.y
 
-        if (dx == 0f && dy == 0f) {
-            return hypot((point.x - lineStart.x).toDouble(), (point.y - lineStart.y).toDouble()).toFloat()
-        }
+        val mag = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        if (mag == 0f) return hypot((p.x - lineStart.x).toDouble(), (p.y - lineStart.y).toDouble()).toFloat()
 
-        val numerator = abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x)
-        val denominator = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        val u = ((p.x - lineStart.x) * dx + (p.y - lineStart.y) * dy) / (mag * mag)
+        val clampedU = u.coerceIn(0f, 1f)
 
-        return numerator / denominator
+        val ix = lineStart.x + clampedU * dx
+        val iy = lineStart.y + clampedU * dy
+
+        return hypot((p.x - ix).toDouble(), (p.y - iy).toDouble()).toFloat()
     }
 }

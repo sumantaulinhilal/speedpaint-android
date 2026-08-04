@@ -55,12 +55,12 @@ data class PathBoundingBox(
 }
 
 enum class HandStyle(val displayName: String, val iconRes: Int? = null) {
-    NO_HAND("No Hand"),
-    MALE_PENCIL("Male Pencil"),
+    NO_HAND("Tanpa Tangan"),
+    BLACK_MARKER("Spidol Marker (Hand + Marker)"),
+    MALE_PENCIL("Pensil Artist (Hand + Pencil)"),
+    STYLUS("Pen Liner (Hand + Pen Liner)"),
     FEMALE_PENCIL("Female Pencil"),
-    BLACK_MARKER("Black Marker"),
     WHITE_MARKER("White Marker"),
-    STYLUS("Stylus Pen"),
     CARTOON_HAND("Cartoon Hand"),
     CUSTOM_PNG("Custom Hand")
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
@@ -304,6 +305,61 @@ fun SpeedPaintMainScreen(
                             config = uiState.config,
                             onConfigChange = { update -> viewModel.updateConfig(update) }
                         )
+                    }
+                }
+            }
+
+            // Image Analysis & Processing Dialog
+            if (uiState.isProcessingImage) {
+                androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                    androidx.compose.material3.Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = PolishSurface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, PolishBorder)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = PolishPrimary,
+                                strokeWidth = 4.dp
+                            )
+                            Text(
+                                text = "ANALISIS SKETSA & VEKTOR",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PolishPrimary,
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = uiState.processingMessage,
+                                fontSize = 13.sp,
+                                color = PolishTextSecondary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { uiState.processingProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = PolishPrimary,
+                                trackColor = PolishBorder
+                            )
+                            Text(
+                                text = "${(uiState.processingProgress * 100).toInt()}% • Memisahkan background & stroke...",
+                                fontSize = 11.sp,
+                                color = PolishTextPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

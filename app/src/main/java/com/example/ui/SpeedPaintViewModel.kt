@@ -41,6 +41,8 @@ data class SpeedPaintUiState(
     val sortedVectorPaths: List<VectorPath> = emptyList(),
     val selectedPresetId: String? = "rocket",
     val isProcessingImage: Boolean = false,
+    val processingProgress: Float = 0f,
+    val processingMessage: String = "",
     val isPlaying: Boolean = false,
     val outlineProgress: Float = 0f, // 0f to 1f
     val fillProgress: Float = 0f, // 0f to 1f
@@ -115,7 +117,13 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
 
     fun processCustomImageUri(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isProcessingImage = true, toastMessage = "Menganalisis sketsa & memproses garis gambar...") }
+            _uiState.update {
+                it.copy(
+                    isProcessingImage = true,
+                    processingProgress = 0.15f,
+                    processingMessage = "Membaca file gambar & mendeteksi area stroke..."
+                )
+            }
             try {
                 val context = getApplication<Application>().applicationContext
                 val inputStream = context.contentResolver.openInputStream(uri)
@@ -123,6 +131,13 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
                 inputStream?.close()
 
                 if (bitmap != null) {
+                    _uiState.update {
+                        it.copy(
+                            processingProgress = 0.40f,
+                            processingMessage = "Memisahkan background & memproses thinning garis (Zhang-Suen skeletonization)..."
+                        )
+                    }
+
                     val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat().coerceAtLeast(1f)
                     val matchingAspectRatio = when {
                         imgRatio > 1.4f -> AspectRatio.RATIO_16_9
@@ -135,10 +150,21 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
                     val extractedPaths = withContext(Dispatchers.Default) {
                         VectorizationEngine.processBitmapToVectorPaths(bitmap)
                     }
+
+                    _uiState.update {
+                        it.copy(
+                            processingProgress = 0.80f,
+                            processingMessage = "Mengurutkan alur menggambar & membentuk vektor final..."
+                        )
+                    }
+
                     val sorted = SequenceSorter.sortPaths(extractedPaths, _uiState.value.config.sequenceOrder)
 
                     _uiState.update {
-                        val updatedConfig = it.config.copy(aspectRatio = matchingAspectRatio)
+                        val updatedConfig = it.config.copy(
+                            aspectRatio = matchingAspectRatio,
+                            backgroundStyle = BackgroundStyle.WHITE
+                        )
                         it.copy(
                             projectTitle = "Uploaded SpeedPaint Image",
                             config = updatedConfig,
@@ -146,9 +172,11 @@ class SpeedPaintViewModel(application: Application) : AndroidViewModel(applicati
                             sortedVectorPaths = sorted,
                             selectedPresetId = null,
                             isProcessingImage = false,
+                            processingProgress = 1.0f,
+                            processingMessage = "Selesai 100%!",
                             outlineProgress = 0f,
                             fillProgress = 0f,
-                            toastMessage = "Vektor gambar berhasil dibuat! Menyesuaikan rasio ${matchingAspectRatio.displayName}"
+                            toastMessage = "Analisis sketsa selesai 100%! Kanvas putih siap diputar."
                         )
                     }
                     updateTotalDuration()
