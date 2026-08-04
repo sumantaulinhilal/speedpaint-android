@@ -77,19 +77,13 @@ fun CanvasPreviewPlayer(
     val context = LocalContext.current
     val handMarkerBitmap = remember(context) {
         try {
-            val opts = BitmapFactory.Options().apply { inScaled = false }
-            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_marker, opts)?.asImageBitmap()
-        } catch (e: Throwable) {
-            null
-        }
+            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_marker)?.asImageBitmap()
+        } catch (e: Throwable) { null }
     }
     val handPencilBitmap = remember(context) {
         try {
-            val opts = BitmapFactory.Options().apply { inScaled = false }
-            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_pencil, opts)?.asImageBitmap()
-        } catch (e: Throwable) {
-            null
-        }
+            BitmapFactory.decodeResource(context.resources, com.example.R.drawable.real_hand_pencil)?.asImageBitmap()
+        } catch (e: Throwable) { null }
     }
 
     Card(

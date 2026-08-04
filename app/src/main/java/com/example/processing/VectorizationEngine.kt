@@ -31,28 +31,46 @@ object VectorizationEngine {
 
         val scaledBitmap = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
 
-        // Step 2: Convert to Grayscale & Luminance matrix
+        // Step 2: Convert to Grayscale & Luminance matrix with Alpha Blending
         val pixels = IntArray(scaledW * scaledH)
         scaledBitmap.getPixels(pixels, 0, scaledW, 0, 0, scaledW, scaledH)
 
         val gray = FloatArray(scaledW * scaledH)
         val colors = Array(scaledH) { IntArray(scaledW) }
 
+        var borderLumaSum = 0f
+        var borderPixelCount = 0
+
         for (y in 0 until scaledH) {
             for (x in 0 until scaledW) {
                 val pixel = pixels[y * scaledW + x]
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
+                val a = (pixel shr 24) and 0xFF
+                var r = (pixel shr 16) and 0xFF
+                var g = (pixel shr 8) and 0xFF
+                var b = pixel and 0xFF
+
+                // Blend transparent/semi-transparent background pixels onto solid white canvas
+                if (a < 255) {
+                    val alphaFactor = a / 255f
+                    r = (r * alphaFactor + 255 * (1f - alphaFactor)).toInt().coerceIn(0, 255)
+                    g = (g * alphaFactor + 255 * (1f - alphaFactor)).toInt().coerceIn(0, 255)
+                    b = (b * alphaFactor + 255 * (1f - alphaFactor)).toInt().coerceIn(0, 255)
+                }
+
                 val luma = 0.299f * r + 0.587f * g + 0.114f * b
                 gray[y * scaledW + x] = luma
-                colors[y][x] = pixel
+                colors[y][x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+
+                if (x == 0 || x == scaledW - 1 || y == 0 || y == scaledH - 1) {
+                    borderLumaSum += luma
+                    borderPixelCount++
+                }
             }
         }
 
-        // Step 3: Sobel Filter for Edge Magnitude & Direction Detection
-        val edges = BooleanArray(scaledW * scaledH)
-        val edgeColors = Array(scaledH) { arrayOfNulls<Color>(scaledW) }
+        // Step 3: Sobel Filter + Non-Maximum Suppression (NMS) for 1-Pixel Thin Crisp Edges
+        val mag = FloatArray(scaledW * scaledH)
+        val dirAngle = FloatArray(scaledW * scaledH)
 
         val gxKernel = arrayOf(
             intArrayOf(-1, 0, 1),
@@ -78,11 +96,54 @@ object VectorizationEngine {
                     }
                 }
 
-                val mag = hypot(gx.toDouble(), gy.toDouble()).toFloat()
-                if (mag > 25) { // Sensitive threshold to capture all sketch details
-                    edges[y * scaledW + x] = true
+                val idx = y * scaledW + x
+                mag[idx] = hypot(gx.toDouble(), gy.toDouble()).toFloat()
+                dirAngle[idx] = atan2(gy.toDouble(), gx.toDouble()).toFloat()
+            }
+        }
+
+        // Apply Non-Maximum Suppression (NMS) to thin thick edge bands into clean 1-pixel skeletons
+        val edges = BooleanArray(scaledW * scaledH)
+        val edgeColors = Array(scaledH) { arrayOfNulls<Color>(scaledW) }
+
+        for (y in 1 until scaledH - 1) {
+            for (x in 1 until scaledW - 1) {
+                val idx = y * scaledW + x
+                val m = mag[idx]
+                if (m < 28f) continue // Edge threshold
+
+                val deg = (dirAngle[idx] * 180f / Math.PI.toFloat() + 180f) % 180f
+                var m1 = 0f
+                var m2 = 0f
+
+                if ((deg >= 0f && deg < 22.5f) || (deg >= 157.5f && deg <= 180f)) {
+                    m1 = mag[idx - 1]
+                    m2 = mag[idx + 1]
+                } else if (deg >= 22.5f && deg < 67.5f) {
+                    m1 = mag[(y - 1) * scaledW + (x + 1)]
+                    m2 = mag[(y + 1) * scaledW + (x - 1)]
+                } else if (deg >= 67.5f && deg < 112.5f) {
+                    m1 = mag[(y - 1) * scaledW + x]
+                    m2 = mag[(y + 1) * scaledW + x]
+                } else {
+                    m1 = mag[(y - 1) * scaledW + (x - 1)]
+                    m2 = mag[(y + 1) * scaledW + (x + 1)]
+                }
+
+                if (m >= m1 && m >= m2) {
+                    edges[idx] = true
                     val originalIntColor = colors[y][x]
-                    edgeColors[y][x] = Color(originalIntColor)
+                    val c = Color(originalIntColor)
+                    val r = c.red
+                    val g = c.green
+                    val b = c.blue
+                    val pLuma = 0.299f * r + 0.587f * g + 0.114f * b
+                    val isSaturated = (maxOf(r, g, b) - minOf(r, g, b)) > 0.18f
+
+                    edgeColors[y][x] = when {
+                        isSaturated -> c
+                        else -> Color(0xFF0F172A)
+                    }
                 }
             }
         }

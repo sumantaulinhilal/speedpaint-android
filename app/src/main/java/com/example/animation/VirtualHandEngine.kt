@@ -2,6 +2,7 @@ package com.example.animation
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
@@ -40,12 +41,12 @@ object VirtualHandEngine {
         progress: Float // 0f to 1f
     ): HandState {
         if (paths.isEmpty() || progress <= 0f) {
-            return HandState(Point2D(0f, 0f), angleDegrees = -25f, currentSpeedRatio = 1.0f, isContactingCanvas = false)
+            return HandState(Point2D(0f, 0f), angleDegrees = 0f, currentSpeedRatio = 1.0f, isContactingCanvas = false)
         }
         if (progress >= 1f) {
             val lastPath = paths.last()
             val lastPt = lastPath.endPoint
-            return HandState(lastPt, angleDegrees = -25f, currentSpeedRatio = 1.0f, isContactingCanvas = false)
+            return HandState(lastPt, angleDegrees = 0f, currentSpeedRatio = 1.0f, isContactingCanvas = false)
         }
 
         // Calculate total distance across all vector paths
@@ -150,35 +151,39 @@ object VirtualHandEngine {
         if (handStyle == HandStyle.NO_HAND) return
 
         when (handStyle) {
-            HandStyle.BLACK_MARKER, HandStyle.WHITE_MARKER, HandStyle.CUSTOM_PNG -> {
-                if (handMarkerBitmap != null) {
+            HandStyle.MALE_PENCIL, HandStyle.FEMALE_PENCIL, HandStyle.STYLUS -> {
+                val targetBmp = handPencilBitmap ?: handMarkerBitmap
+                if (targetBmp != null) {
+                    val isPencil = targetBmp == handPencilBitmap
                     drawRealPNGHand(
-                        bitmap = handMarkerBitmap,
+                        bitmap = targetBmp,
                         tipX = tipX,
                         tipY = tipY,
                         angleDegrees = angleDegrees,
-                        tipXRatio = 0.2757f,
-                        tipYRatio = 0.0f
+                        tipXRatio = if (isPencil) 0.050f else 0.275f,
+                        tipYRatio = if (isPencil) 0.050f else 0.300f
                     )
                     return
                 }
             }
-            HandStyle.MALE_PENCIL, HandStyle.FEMALE_PENCIL -> {
-                if (handPencilBitmap != null) {
+            else -> { // BLACK_MARKER, WHITE_MARKER, CARTOON_HAND, CUSTOM_PNG
+                val targetBmp = handMarkerBitmap ?: handPencilBitmap
+                if (targetBmp != null) {
+                    val isMarker = targetBmp == handMarkerBitmap
                     drawRealPNGHand(
-                        bitmap = handPencilBitmap,
+                        bitmap = targetBmp,
                         tipX = tipX,
                         tipY = tipY,
                         angleDegrees = angleDegrees,
-                        tipXRatio = 0.0f,
-                        tipYRatio = 0.0f
+                        tipXRatio = if (isMarker) 0.275f else 0.050f,
+                        tipYRatio = if (isMarker) 0.308f else 0.050f
                     )
                     return
                 }
             }
-            else -> {}
         }
 
+        // Vector fallback if PNG bitmap resources are not loaded
         rotate(degrees = angleDegrees, pivot = Offset(tipX, tipY)) {
             translate(left = tipX, top = tipY) {
                 when (handStyle) {
@@ -222,105 +227,162 @@ object VirtualHandEngine {
     }
 
     private fun DrawScope.drawMalePencilHand() {
-        // 1. Realistic Soft Drop Shadow (Semi 3D depth)
+        // 1. Realistic Soft Drop Shadow
         val shadowPath = Path().apply {
             moveTo(25f, 35f)
             lineTo(220f, 230f)
-            cubicTo(260f, 280f, 320f, 340f, 480f, 520f)
-            lineTo(420f, 560f)
+            cubicTo(260f, 280f, 320f, 340f, 520f, 560f)
+            lineTo(460f, 600f)
             lineTo(150f, 250f)
             close()
         }
-        drawPath(shadowPath, color = Color.Black.copy(alpha = 0.22f))
+        drawPath(
+            shadowPath,
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.28f), Color.Transparent),
+                center = Offset(200f, 250f),
+                radius = 400f
+            )
+        )
 
-        // 2. Graphite Pencil Lead Tip at (0, 0) pointing UP-LEFT
+        // 2. Graphite Pencil Lead Tip at (0, 0)
         val lead = Path().apply {
             moveTo(0f, 0f)
-            lineTo(8.5f, 16.9f)
-            lineTo(16.9f, 8.5f)
+            lineTo(9f, 18f)
+            lineTo(18f, 9f)
             close()
         }
-        drawPath(lead, color = Color(0xFF0F172A))
+        drawPath(
+            lead,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF1E293B), Color(0xFF020617)),
+                start = Offset(0f, 0f),
+                end = Offset(18f, 18f)
+            )
+        )
 
-        // 3. Wooden Cone (Sharpened Cedar Wood)
+        // 3. Sharpened Wooden Cone
         val wood = Path().apply {
-            moveTo(8.5f, 16.9f)
-            lineTo(21.9f, 41.7f)
-            lineTo(41.7f, 21.9f)
-            lineTo(16.9f, 8.5f)
+            moveTo(9f, 18f)
+            lineTo(24f, 45f)
+            lineTo(45f, 24f)
+            lineTo(18f, 9f)
             close()
         }
-        drawPath(wood, color = Color(0xFFEAB308))
+        drawPath(
+            wood,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFEF08A), Color(0xFFCA8A04)),
+                start = Offset(9f, 18f),
+                end = Offset(45f, 45f)
+            )
+        )
 
-        // 4. Yellow Hexagonal Pencil Barrel
+        // 4. Hexagonal Yellow Pencil Body
         val barrel = Path().apply {
-            moveTo(21.9f, 41.7f)
-            lineTo(154.1f, 185.3f)
-            lineTo(185.3f, 154.1f)
-            lineTo(41.7f, 21.9f)
+            moveTo(24f, 45f)
+            lineTo(165f, 195f)
+            lineTo(195f, 165f)
+            lineTo(45f, 24f)
             close()
         }
-        drawPath(barrel, color = Color(0xFFCA8A04))
+        drawPath(
+            barrel,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFEAB308), Color(0xFFA16207)),
+                start = Offset(24f, 45f),
+                end = Offset(195f, 195f)
+            )
+        )
 
+        // Specular Ridge Highlight
         val barrelHighlight = Path().apply {
-            moveTo(27f, 36f)
-            lineTo(165f, 174f)
-            lineTo(175f, 164f)
-            lineTo(36f, 27f)
+            moveTo(30f, 38f)
+            lineTo(175f, 183f)
+            lineTo(185f, 173f)
+            lineTo(38f, 30f)
             close()
         }
-        drawPath(barrelHighlight, color = Color(0xFFFDE047))
+        drawPath(barrelHighlight, color = Color(0xFFFEF08A).copy(alpha = 0.8f))
 
-        // 5. Photorealistic Male Hand (Skin Base)
+        // 5. Photorealistic 3D Male Hand (Skin Base with Realistic Multi-Tone Gradient)
         val skinBase = Path().apply {
             moveTo(60f, 85f)
             cubicTo(95f, 110f, 140f, 170f, 190f, 230f)
-            lineTo(320f, 360f)
-            lineTo(480f, 520f)
-            lineTo(380f, 580f)
+            lineTo(340f, 380f)
+            lineTo(500f, 540f)
+            lineTo(400f, 600f)
             lineTo(210f, 420f)
             cubicTo(140f, 320f, 90f, 210f, 60f, 85f)
             close()
         }
-        drawPath(skinBase, color = Color(0xFFD97706)) // Realistic warm skin tone
+        drawPath(
+            skinBase,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFDBA74), Color(0xFFD97706), Color(0xFF92400E)),
+                start = Offset(60f, 85f),
+                end = Offset(450f, 550f)
+            )
+        )
 
-        // Skin Shading & Muscle Highlights
+        // Knuckle & Muscle 3D Highlights
         val skinHighlight = Path().apply {
             moveTo(85f, 110f)
             cubicTo(120f, 140f, 170f, 200f, 230f, 270f)
-            lineTo(340f, 380f)
-            lineTo(290f, 430f)
+            lineTo(350f, 390f)
+            lineTo(300f, 440f)
             lineTo(160f, 290f)
             close()
         }
-        drawPath(skinHighlight, color = Color(0xFFF59E0B).copy(alpha = 0.5f))
+        drawPath(
+            skinHighlight,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFEDD5).copy(alpha = 0.6f), Color.Transparent),
+                start = Offset(85f, 110f),
+                end = Offset(300f, 440f)
+            )
+        )
 
-        // Index Finger wrapped firmly around Pencil Barrel
+        // Index Finger
         val indexFinger = Path().apply {
             moveTo(45f, 70f)
-            cubicTo(65f, 60f, 115f, 90f, 125f, 135f)
-            cubicTo(110f, 150f, 65f, 120f, 45f, 70f)
+            cubicTo(65f, 60f, 120f, 90f, 130f, 140f)
+            cubicTo(115f, 155f, 65f, 125f, 45f, 70f)
             close()
         }
-        drawPath(indexFinger, color = Color(0xFFB45309))
+        drawPath(
+            indexFinger,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFDBA74), Color(0xFFB45309)),
+                start = Offset(45f, 70f),
+                end = Offset(130f, 140f)
+            )
+        )
 
         // Thumb Grip Overlay
         val thumb = Path().apply {
             moveTo(75f, 115f)
-            cubicTo(105f, 125f, 145f, 185f, 135f, 215f)
-            cubicTo(105f, 225f, 65f, 165f, 75f, 115f)
+            cubicTo(105f, 125f, 150f, 190f, 140f, 220f)
+            cubicTo(105f, 230f, 65f, 165f, 75f, 115f)
             close()
         }
-        drawPath(thumb, color = Color(0xFFD97706))
+        drawPath(
+            thumb,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFED7AA), Color(0xFFD97706)),
+                start = Offset(75f, 115f),
+                end = Offset(140f, 220f)
+            )
+        )
 
         // Fingernail Accent
         val nail = Path().apply {
-            moveTo(110f, 125f)
-            lineTo(122f, 138f)
-            lineTo(112f, 145f)
+            moveTo(112f, 128f)
+            lineTo(125f, 142f)
+            lineTo(115f, 149f)
             close()
         }
-        drawPath(nail, color = Color(0xFFFDE68A).copy(alpha = 0.85f))
+        drawPath(nail, color = Color(0xFFFEF3C7).copy(alpha = 0.9f))
     }
 
     private fun DrawScope.drawFemalePencilHand() {
@@ -328,12 +390,19 @@ object VirtualHandEngine {
         val shadow = Path().apply {
             moveTo(20f, 30f)
             lineTo(200f, 210f)
-            cubicTo(240f, 260f, 300f, 320f, 450f, 490f)
-            lineTo(400f, 530f)
+            cubicTo(240f, 260f, 300f, 320f, 480f, 520f)
+            lineTo(420f, 560f)
             lineTo(140f, 230f)
             close()
         }
-        drawPath(shadow, color = Color.Black.copy(alpha = 0.18f))
+        drawPath(
+            shadow,
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.22f), Color.Transparent),
+                center = Offset(180f, 230f),
+                radius = 380f
+            )
+        )
 
         // Pencil Tip at (0, 0)
         val lead = Path().apply {
@@ -355,91 +424,149 @@ object VirtualHandEngine {
 
         val pencilBody = Path().apply {
             moveTo(18f, 36f)
-            lineTo(140f, 170f)
-            lineTo(170f, 140f)
+            lineTo(145f, 175f)
+            lineTo(175f, 145f)
             lineTo(36f, 18f)
             close()
         }
-        drawPath(pencilBody, color = Color(0xFFDB2777)) // Pink elegant pencil
+        drawPath(
+            pencilBody,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFEC4899), Color(0xFF9D174D)),
+                start = Offset(18f, 36f),
+                end = Offset(175f, 175f)
+            )
+        )
 
         // Female Skin Base
         val skinBase = Path().apply {
             moveTo(55f, 75f)
             cubicTo(85f, 100f, 130f, 155f, 180f, 215f)
-            lineTo(300f, 340f)
-            lineTo(450f, 490f)
-            lineTo(360f, 550f)
+            lineTo(320f, 360f)
+            lineTo(470f, 520f)
+            lineTo(380f, 570f)
             lineTo(190f, 390f)
             cubicTo(130f, 290f, 80f, 190f, 55f, 75f)
             close()
         }
-        drawPath(skinBase, color = Color(0xFFFDBA74))
+        drawPath(
+            skinBase,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFEDD5), Color(0xFFFDBA74), Color(0xFFEA580C)),
+                start = Offset(55f, 75f),
+                end = Offset(420f, 500f)
+            )
+        )
 
         // French Manicure Nails
         val nail = Path().apply {
-            moveTo(100f, 115f)
-            lineTo(112f, 128f)
-            lineTo(102f, 135f)
+            moveTo(102f, 118f)
+            lineTo(115f, 132f)
+            lineTo(105f, 139f)
             close()
         }
         drawPath(nail, color = Color.White)
     }
 
     private fun DrawScope.drawMarkerHand(markerColor: Color) {
-        // Drop Shadow (Semi-3D Depth)
+        // Drop Shadow
         val shadow = Path().apply {
             moveTo(22f, 32f)
             lineTo(220f, 230f)
-            cubicTo(260f, 280f, 330f, 350f, 500f, 540f)
-            lineTo(430f, 590f)
+            cubicTo(260f, 280f, 330f, 350f, 520f, 560f)
+            lineTo(440f, 610f)
             lineTo(160f, 260f)
             close()
         }
-        drawPath(shadow, color = Color.Black.copy(alpha = 0.22f))
+        drawPath(
+            shadow,
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.28f), Color.Transparent),
+                center = Offset(220f, 250f),
+                radius = 420f
+            )
+        )
 
-        // Marker Chisel Tip at (0, 0)
+        // Sharpie Marker Chisel Tip at (0, 0)
         val tip = Path().apply {
             moveTo(0f, 0f)
-            lineTo(10f, 20f)
-            lineTo(20f, 10f)
+            lineTo(12f, 24f)
+            lineTo(24f, 12f)
             close()
         }
         drawPath(tip, color = markerColor)
 
-        // Marker Thick Matte Body
+        // Marker Matte Sleeve & Barrel
         val barrel = Path().apply {
-            moveTo(10f, 20f)
-            lineTo(150f, 170f)
-            lineTo(170f, 150f)
-            lineTo(20f, 10f)
+            moveTo(12f, 24f)
+            lineTo(160f, 180f)
+            lineTo(180f, 160f)
+            lineTo(24f, 12f)
             close()
         }
-        drawPath(barrel, color = Color(0xFF0F172A))
+        drawPath(
+            barrel,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF334155), Color(0xFF0F172A), Color(0xFF020617)),
+                start = Offset(12f, 24f),
+                end = Offset(180f, 180f)
+            )
+        )
 
-        // Blue Accent Ring
-        drawCircle(color = Color(0xFF3B82F6), radius = 18f, center = Offset(75f, 75f))
+        // Specular Silver/Blue Sharpie Ring Detail
+        val silverRing = Path().apply {
+            moveTo(60f, 72f)
+            lineTo(72f, 84f)
+            lineTo(84f, 72f)
+            lineTo(72f, 60f)
+            close()
+        }
+        drawPath(silverRing, color = Color(0xFF38BDF8))
 
-        // Realistic Hand Holding Marker
+        // Realistic 3D Hand Holding Sharpie Marker
         val hand = Path().apply {
             moveTo(60f, 85f)
             cubicTo(95f, 110f, 140f, 170f, 190f, 230f)
-            lineTo(320f, 360f)
-            lineTo(490f, 530f)
-            lineTo(390f, 590f)
+            lineTo(340f, 380f)
+            lineTo(510f, 550f)
+            lineTo(410f, 610f)
             lineTo(210f, 420f)
             cubicTo(140f, 320f, 90f, 210f, 60f, 85f)
             close()
         }
-        drawPath(hand, color = Color(0xFFE2E8F0))
+        drawPath(
+            hand,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFED7AA), Color(0xFFD97706), Color(0xFFB45309)),
+                start = Offset(60f, 85f),
+                end = Offset(450f, 550f)
+            )
+        )
 
         // Thumb Grip Overlay
         val thumb = Path().apply {
             moveTo(70f, 110f)
-            cubicTo(100f, 120f, 140f, 180f, 130f, 210f)
-            cubicTo(100f, 220f, 60f, 160f, 70f, 110f)
+            cubicTo(100f, 120f, 145f, 185f, 135f, 215f)
+            cubicTo(100f, 225f, 60f, 165f, 70f, 110f)
             close()
         }
-        drawPath(thumb, color = Color(0xFFCBD5E1))
+        drawPath(
+            thumb,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFEDD5), Color(0xFFD97706)),
+                start = Offset(70f, 110f),
+                end = Offset(135f, 215f)
+            )
+        )
+
+        // Fingernail
+        val nail = Path().apply {
+            moveTo(110f, 125f)
+            lineTo(122f, 138f)
+            lineTo(112f, 145f)
+            close()
+        }
+        drawPath(nail, color = Color(0xFFFEF3C7).copy(alpha = 0.9f))
     }
 
     private fun DrawScope.drawStylusHand() {

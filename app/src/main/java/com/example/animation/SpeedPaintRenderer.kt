@@ -135,15 +135,19 @@ object SpeedPaintRenderer {
             val vectorPath = centeredPaths[i]
             val pathLen = pathLengths[i]
 
-            // Determine stroke color (ensure solid black is preserved on light backgrounds)
+            // Determine stroke color (ensure contrast against canvas background)
             val strokeColor = when (sketchType) {
                 SketchType.COLOR -> {
-                    if (backgroundStyle.isDark && (vectorPath.color == Color.Black || vectorPath.color == Color(0xFF0F172A))) {
-                        Color.White
-                    } else if (!backgroundStyle.isDark && (vectorPath.color == Color.Black || vectorPath.color == Color.White)) {
-                        Color(0xFF0F172A)
+                    val c = vectorPath.color
+                    val luma = 0.299f * c.red + 0.587f * c.green + 0.114f * c.blue
+                    val isSaturated = (maxOf(c.red, c.green, c.blue) - minOf(c.red, c.green, c.blue)) > 0.18f
+
+                    if (!backgroundStyle.isDark) {
+                        // On White Canvas: light/white colors become dark/black so they never disappear on paper
+                        if (luma > 0.80f && !isSaturated) Color(0xFF0F172A) else c
                     } else {
-                        vectorPath.color
+                        // On Dark Canvas: dark/black colors become white
+                        if (luma < 0.20f && !isSaturated) Color.White else c
                     }
                 }
                 SketchType.BLACK_WHITE -> {
@@ -167,22 +171,31 @@ object SpeedPaintRenderer {
             accumulatedLength += pathLen
         }
 
-        // Step 4: Color Fill Phase
+        // Step 4: Color Fill Phase (Realistic Marker Color Wash)
         if (fillProgress > 0f) {
-            for (vectorPath in centeredPaths) {
-                if (vectorPath.points.size > 3 && vectorPath.color != Color.Black && vectorPath.color != Color.White) {
-                    val fillAlpha = (fillProgress * 0.85f).coerceIn(0f, 0.85f)
+            val totalFillCount = (centeredPaths.size * fillProgress).toInt().coerceIn(0, centeredPaths.size)
+            for (i in 0 until totalFillCount) {
+                val vectorPath = centeredPaths[i]
+                if (vectorPath.color != Color.Black && vectorPath.color != Color.White && vectorPath.points.size >= 2) {
+                    val fillAlpha = (fillProgress * 0.70f).coerceIn(0.15f, 0.70f)
                     val fillColor = vectorPath.color.copy(alpha = fillAlpha)
 
-                    val filledPath = Path().apply {
-                        val first = vectorPath.points.first()
-                        moveTo(first.x, first.y)
+                    val fillWashPath = Path().apply {
+                        moveTo(vectorPath.points[0].x, vectorPath.points[0].y)
                         for (p in vectorPath.points.drop(1)) {
                             lineTo(p.x, p.y)
                         }
-                        close()
                     }
-                    drawPath(filledPath, color = fillColor)
+
+                    drawPath(
+                        fillWashPath,
+                        color = fillColor,
+                        style = Stroke(
+                            width = vectorPath.strokeWidth * 2.8f,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
                 }
             }
         }
